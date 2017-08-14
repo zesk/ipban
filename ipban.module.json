@@ -1,0 +1,14 @@
+{
+	"name": "IP Ban",
+	"description": "Interface to ban IP addresses based on bad behavior; various connections to external sources can be configured, including log file parsing and connecting to various databases.",
+	"requires": [
+		"parse_log",
+		"server",
+		"cron"
+	],
+	"autoload_options": {
+		"class_prefix": "IPBan\\",
+		"lower": false
+	},
+	"module_class": "IPBan\\Module"
+}
