@@ -27,15 +27,24 @@ class FS extends Options {
 	
 	/**
 	 *
+	 * @var Application
+	 */
+	private $application = null;
+	
+	/**
+	 *
 	 * @param array $options        	
 	 * @throws Exception_Configuration
 	 */
-	function __construct(array $options = null) {
+	function __construct(Application $application, array $options = null) {
 		parent::__construct($options);
+		$this->application = $application;
 		$this->inherit_global_options();
 		$this->fs_path = $this->option('path');
 		if (empty($this->fs_path)) {
-			throw new Exception_Configuration("IPBan\\FS::path", "No path set for IPBan_FS::path");
+			throw new Exception_Configuration("IPBan\\FS::path", "No path set for {class}::path", array(
+				"class" => __CLASS__
+			));
 		}
 		Directory::depend($this->fs_path, 0755);
 		$this->php_inc_create();
@@ -112,6 +121,7 @@ class FS extends Options {
 	}
 	
 	/**
+	 * Block (drop) all packets from requested IPs
 	 *
 	 * @param array $ips
 	 *        	List of IPs or IP masks to deny
@@ -123,6 +133,7 @@ class FS extends Options {
 	}
 	
 	/**
+	 * Allow traffic from requested IPs
 	 *
 	 * @param array $ips
 	 *        	List of IPs or IP masks to allow
@@ -163,7 +174,7 @@ class FS extends Options {
 			chmod($ff, 0644);
 			return 1;
 		} catch (Exception_Directory_Create $e) {
-			zesk()->logger->error("Unable to create directory {dir} to block IP {ips}", array(
+			$this->application->logger->error("Unable to create directory {dir} to block IP {ips}", array(
 				"dir" => $dir,
 				"ips" => $ips
 			));

@@ -1,10 +1,10 @@
 <?php
+
 /**
  * @copyright &copy; 2016 Market Acumen, Inc.
  */
 namespace IPBan;
 
-use zesk\Object;
 use zesk\Timestamp;
 use zesk\Interface_Process;
 use zesk\Exception_Configuration;
@@ -13,6 +13,7 @@ use zesk\Exception_Syntax;
 use zesk\Parse_Log;
 
 /**
+ *
  * @see Class_Parser
  *
  * @property id $id
@@ -23,14 +24,14 @@ use zesk\Parse_Log;
  * @property Timestamp $modified
  * @property Timestamp $created
  */
-class Parser extends IPBan {
+class Parser extends Object {
 	
 	/**
 	 * Polymorphic class should use this class
 	 *
 	 * @var Class_Object
 	 */
-	protected $class = "IPBan_Parser";
+	protected $class = "IPBan\\Parser";
 	
 	/**
 	 * Internal state
@@ -74,7 +75,8 @@ class Parser extends IPBan {
 	public $max_timestamp = null;
 	
 	/**
-	 * Last time triggers were run. Run every n seconds
+	 * Last time triggers were run.
+	 * Run every n seconds
 	 *
 	 * @var integer
 	 */
@@ -89,7 +91,7 @@ class Parser extends IPBan {
 	/**
 	 * Register a parser from the configuration file (passed in as options)
 	 *
-	 * @param array $options
+	 * @param array $options        	
 	 * @return IPBan_Parser
 	 */
 	public static function register_parser(Server $server, array $options) {
@@ -101,7 +103,7 @@ class Parser extends IPBan {
 		if (empty($handler)) {
 			throw new Exception_Configuration("handler", "Configuration file {configuration_file} does not specify a handler", $options);
 		}
-		return Object::factory(__CLASS__, array(
+		return $server->application->object_factory(__CLASS__, array(
 			'server' => $server,
 			'path' => $path,
 			"handler" => $handler
@@ -160,9 +162,9 @@ class Parser extends IPBan {
 	}
 	
 	/**
-	 * 
-	 * @param unknown $name
-	 * @param array $current
+	 *
+	 * @param unknown $name        	
+	 * @param array $current        	
 	 * @return number|number[]|unknown[]|NULL[]
 	 */
 	private function _file_data($name, array $current = null) {
@@ -401,10 +403,11 @@ class Parser extends IPBan {
 	}
 	
 	/**
-	 * Retrieve the IPBan_Trigger for this codename. If it doesn't exist, then create it.
+	 * Retrieve the IPBan_Trigger for this codename.
+	 * If it doesn't exist, then create it.
 	 *
-	 * @param string $codename
-	 * @param integer $duration
+	 * @param string $codename        	
+	 * @param integer $duration        	
 	 * @return IPBan_Trigger
 	 */
 	private function trigger_register($codename, array $options) {
@@ -430,8 +433,8 @@ class Parser extends IPBan {
 	/**
 	 * Run a single trigger
 	 *
-	 * @param string $codename
-	 * @param array $options
+	 * @param string $codename        	
+	 * @param array $options        	
 	 */
 	private function _trigger($codename, array $options) {
 		$trigger = $this->trigger_register($codename, $options);
@@ -448,13 +451,13 @@ class Parser extends IPBan {
 		$banned = $trigger->add($banned, $this->max_timestamp);
 		
 		foreach ($banned as $ip => $count) {
-			IPBan::complain($ip, IPBan::severity_from_string($trigger->severity()), "{count} occurances of trigger {codename}", array(
+			Complaint::complain($ip, Complaint::severity_from_string($trigger->severity()), "{count} occurances of trigger {codename}", array(
 				"count" => $count,
 				"codename" => $codename
 			));
 		}
 	}
 	public static function cull(zesk\Application $app, $duration) {
-		$app->query_delete("IPBan_Event")->where("*UTC|<=", "DATE_SUB(UTC_TIMESTAMP(), INTERVAL $duration SECOND)")->exec();
+		$app->query_delete("IPBan\\Event")->where("*UTC|<=", "DATE_SUB(UTC_TIMESTAMP(), INTERVAL $duration SECOND)")->exec();
 	}
 }

@@ -18,7 +18,7 @@ use zesk\IPv4;
  * @author kent
  *        
  */
-class IPBan extends Object {
+class Complaint extends Object {
 	
 	/**
 	 * Server admin bans.
@@ -62,7 +62,7 @@ class IPBan extends Object {
 	
 	/**
 	 * Convert string severity into integer severity
-	 * 
+	 *
 	 * @param string $string        	
 	 * @return integer
 	 */

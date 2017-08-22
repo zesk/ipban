@@ -1,4 +1,5 @@
 <?php
+
 /**
  * @copyright &copy; 2016 Market Acumen, Inc.
  */
@@ -16,6 +17,8 @@ use zesk\IPv4;
 use zesk\Process_Mock;
 use zesk\FIFO;
 use zesk\Net_Sync;
+use zesk\Exception_Class_NotFound;
+use zesk\Exception_Unsupported;
 
 /**
  * IP Banning application
@@ -31,14 +34,14 @@ class Application extends \zesk\Application {
 	
 	/**
 	 * String to match in 2016 or earlier installations
-	 * 
+	 *
 	 * @var string
 	 */
 	const snippet_match2016 = '/var/db/ipban/ipban.inc';
 	
 	/**
 	 * Current string
-	 * 
+	 *
 	 * @var string
 	 */
 	const snippet_match = '/var/db/ipban/ipban.php';
@@ -55,12 +58,6 @@ class Application extends \zesk\Application {
 	 * @var boolean
 	 */
 	public $debug = false;
-	
-	/**
-	 *
-	 * @var zesk\Interface_Process
-	 */
-	protected $proc = null;
 	
 	/**
 	 *
@@ -90,13 +87,6 @@ class Application extends \zesk\Application {
 	const chain_ban = 'zesk-ipban';
 	
 	/**
-	 * Chains structure
-	 *
-	 * @var array
-	 */
-	protected $chains = array();
-	
-	/**
 	 * IP address => IP address
 	 *
 	 * @var array
@@ -111,70 +101,34 @@ class Application extends \zesk\Application {
 	protected $whitelist_file_mtime = null;
 	
 	/**
-	 * IP address => array($chain_path => $rule, $chain_path => $rule)
 	 *
-	 * @var unknown
+	 * @var Firewall
 	 */
-	protected $ips = array();
-	
-	/**
-	 * Chains structure
-	 *
-	 * @var boolean
-	 */
-	protected $chains_dirty = true;
-	
-	/**
-	 * Last Database check
-	 *
-	 * @var string
-	 */
-	protected $last_check = null;
+	protected $firewall = null;
 	
 	/**
 	 *
-	 * @var IPBan_FS
+	 * @var FS
 	 */
 	protected $ipban_fs = null;
-	
-	/**
-	 * Standard chain configuration
-	 *
-	 * @var unknown
-	 */
-	static $chain_config = array(
-		'INPUT' => array(
-			'suffix' => '-input',
-			'ip_column' => 'source',
-			'command_parameter' => '-s'
-		),
-		'OUTPUT' => array(
-			'suffix' => '-output',
-			'ip_column' => 'destination',
-			'command_parameter' => '-d'
-		)
-	);
 	public static function default_configuration() {
 		return array(
-			// 			'zesk::run_path' => '/var/run/ipban',
-			// 			'zesk::data_path' => '/var/run/ipban',
 			'zesk\\Module_Logger_File::defaults::time_zone' => 'UTC',
 			'zesk\\Module_Logger_File::files::main::linkname' => 'ipban.log',
 			'zesk\\Module_Logger_File::files::main::name' => '/var/log/ipban/{YYYY}-{MM}-{DD}-ipban.log',
-			'IPBan_FS::path' => '/var/db/ipban',
+			'IPBan\\FS::path' => '/var/db/ipban',
 			'zesk\\Database::names::default' => "mysqli://ipban:ipban@localhost/ipban",
 			'zesk\\Database::default' => "default"
 		);
 	}
 	protected $register_hooks = array(
-		'Settings'
+		'zesk\\Settings'
 	);
 	protected $load_modules = array(
-		'ipban',
-		'parse_log',
-		'server',
-		'mysql',
-		'cron'
+		'Parse_Log',
+		'Server',
+		'MySQL',
+		'Cron'
 	);
 	
 	/**
@@ -198,7 +152,7 @@ class Application extends \zesk\Application {
 		} else {
 			$this->logger->warning("No configuration directory {path} or {file}", compact("path", "file"));
 		}
-		$path = 'Application_IPBan::url_toxic_ip';
+		$path = 'IPBan\\Application::url_toxic_ip';
 		if (!$this->configuration->path_exists($path)) {
 			$this->configuration->path_set($path, 'http://www.stopforumspam.com/downloads/toxic_ip_cidr.txt');
 		}
@@ -212,10 +166,22 @@ class Application extends \zesk\Application {
 	 * @see \zesk\Application::postconfigure()
 	 */
 	public function postconfigure() {
+		$type = $this->option("firewall_type", "iptables");
 		try {
-			$this->ipban_fs = new IPBan_FS();
+			$this->firewall = Firewall::firewall_factory($this, $type);
+		} catch (Exception_Unsupported $e) {
+			$this->logger->warning("Firewall type {type} not supported, no firewall configured", array(
+				"type" => $type
+			));
+		} catch (Exception_Class_NotFound $e) {
+			$this->logger->warning("Firewall type {type} not found, no firewall configured", array(
+				"type" => $type
+			));
+		}
+		try {
+			$this->ipban_fs = new FS($this);
 		} catch (Exception_Configuration $e) {
-			$this->logger->notice("IPBan_FS not configured. {e}", array(
+			$this->logger->notice("IPBan\\FS not configured. {e}", array(
 				"e" => $e
 			));
 		}
@@ -242,7 +208,7 @@ class Application extends \zesk\Application {
 	 */
 	private function load_ip_file($path, $purpose = "IP") {
 		$this->logger->notice("Loading {purpose} file: {path}", compact("path", "purpose"));
-		$contents = file::contents($path, "");
+		$contents = File::contents($path, "");
 		$contents = Text::remove_line_comments($contents, "#", false);
 		$lines = arr::trim_clean(explode("\n", $contents));
 		$ips = $this->normalize_ips($lines, $purpose);
@@ -301,8 +267,13 @@ class Application extends \zesk\Application {
 	 * @return string
 	 */
 	protected function hook_classes(array $classes) {
-		$classes[] = "IPBan";
-		$classes[] = "Settings";
+		$classes[] = __NAMESPACE__ . "\\" . "Complaint";
+		$classes[] = __NAMESPACE__ . "\\" . "Event";
+		$classes[] = __NAMESPACE__ . "\\" . "IP";
+		$classes[] = __NAMESPACE__ . "\\" . "Parser";
+		$classes[] = __NAMESPACE__ . "\\" . "Tag";
+//		$classes[] = __NAMESPACE__ . "\\" . "Trigger";
+		$classes[] = "zesk\\Settings";
 		return $classes;
 	}
 	
@@ -362,7 +333,7 @@ class Application extends \zesk\Application {
 	 *
 	 * Set in your configuration file:
 	 *
-	 * Application_IPBan::ipban_files=["/path/to/index.php","/path/to/wordpress/index.php","/path/to/drupal/index.php"]
+	 * Application_Complaint::ipban_files=["/path/to/index.php","/path/to/wordpress/index.php","/path/to/drupal/index.php"]
 	 */
 	public function check_instrumented_files() {
 		$files = $this->option_list("ipban_files");
@@ -459,7 +430,7 @@ class Application extends \zesk\Application {
 				));
 			}
 			$this->proc = $p;
-			$this->init_chains();
+			$this->init_firewall();
 			$this->sync_toxic_ips(true);
 			$this->sync_whitelist();
 			$this->initial_ban();
@@ -476,7 +447,7 @@ class Application extends \zesk\Application {
 	}
 	private function initial_ban() {
 		$this->last_check = Timestamp::now();
-		$ips = IPBan::ban_since(null, $this->option());
+		$ips = Complaint::ban_since(null, $this->option());
 		$this->drop_ip(self::chain_ban, $ips);
 	}
 	/**
@@ -539,9 +510,9 @@ class Application extends \zesk\Application {
 		$options = $this->option();
 		
 		$now = Timestamp::now();
-		$ban_ips = IPBan::ban_since($this->last_check, $options);
+		$ban_ips = Complaint::ban_since($this->last_check, $options);
 		$ban_ips += IPBan_IP::blacklist($this->last_check);
-		$allow_ips = IPBan::allow_since($this->last_check, $options);
+		$allow_ips = Complaint::allow_since($this->last_check, $options);
 		$allow_ips += IPBan_IP::whitelist($this->last_check) + $this->whitelist;
 		
 		foreach ($ban_ips as $ip => $ip) {
@@ -595,172 +566,22 @@ class Application extends \zesk\Application {
 	}
 	
 	/**
-	 * Retrieve all IPs associated with a chain
-	 *
-	 * @param string $name        	
-	 * @return array
-	 */
-	protected function chain_ips($prefix) {
-		$ips = array();
-		foreach (self::$chain_config as $settings) {
-			$suffix = $ip_column = null;
-			extract($settings, EXTR_IF_EXISTS);
-			$rules = apath($this->chains, array(
-				$prefix . $suffix,
-				"rules"
-			));
-			if (!is_array($rules)) {
-				continue;
-			}
-			foreach ($rules as $rule) {
-				$ip = $rule[$ip_column];
-				$ips[$ip] = $ip;
-			}
-		}
-		return $ips;
-	}
-	
-	/**
-	 * Does this chain exist?
-	 *
-	 * @param string $name        	
-	 * @return boolean
-	 */
-	protected function has_chain($name) {
-		return array_key_exists($name, $this->chains);
-	}
-	
-	/**
-	 * Does the $from chain have a link to the $to chain?
-	 *
-	 * @param string $from        	
-	 * @param string $to        	
-	 * @return boolean
-	 */
-	protected function chain_links_to($from, $to) {
-		$chain = apath($this->chains, array(
-			$from,
-			"rules"
-		), array());
-		foreach ($chain as $rule_number => $rule) {
-			$target = avalue($rule, 'target');
-			if ($target === $to) {
-				return true;
-			}
-		}
-		return false;
-	}
-	
-	/**
-	 * Initialize the chains, setup our internal chains
-	 */
-	protected function init_chains() {
-		$this->iptables = zesk()->paths->which("iptables");
-		$this->clean();
-		$this->logger->notice("Existing chains: " . implode(", ", array_keys($this->chains)));
-		foreach (array(
-			self::chain_toxic,
-			self::chain_ban
-		) as $prefix) {
-			foreach (self::$chain_config as $parent => $data) {
-				$name = $prefix . $data['suffix'];
-				if (!$this->has_chain($name)) {
-					$this->logger->notice("Adding chain {name}", compact("name"));
-					$this->iptables('--new {0}', $name);
-				}
-				if (!$this->chain_links_to($parent, $name)) {
-					$this->logger->notice("Linking chain {name} to chain {parent}", compact("name", "parent"));
-					$this->iptables('--insert {0} 1 -j {1}', $parent, $name);
-				}
-			}
-		}
-	}
-	/**
-	 * Find IP addresses in current rules
-	 *
-	 * @param array $ips        	
-	 * @return array
-	 */
-	protected function find_ips(array $ips) {
-		$found = array();
-		foreach ($ips as $ip) {
-			if (self::null_ip($ip)) {
-				continue;
-			}
-			$rules = avalue($this->ips, $ip);
-			if (!$rules) {
-				if (!IPv4::is_mask($ip) && !IPv4::valid($ip)) {
-					$this->logger->error("Strange IP address: {ip}", array(
-						"ip" => $ip
-					));
-				}
-				continue;
-			}
-			$found = array_merge($found, array_values($rules));
-		}
-		return $found;
-	}
-	
-	/**
-	 * Does the named chain contain the IP address already?
-	 *
-	 * @param string $name
-	 *        	FULL chain name (not prefix)
-	 * @param string $ip
-	 *        	IP address
-	 * @return boolean
-	 */
-	protected function chain_has_ip($name, $ip) {
-		$records = avalue($this->ips, $ip);
-		if (!is_array($records)) {
-			return false;
-		}
-		$keys = array_keys($records);
-		foreach ($keys as $key) {
-			if (begins($key, "$name.")) {
-				return true;
-			}
-		}
-		return false;
-	}
-	
-	/**
 	 * Add an IP to the blocked IP list specified by prefix
 	 *
 	 * @param unknown $prefix        	
 	 * @param array $ips        	
 	 */
 	protected function drop_ip($prefix, array $ips) {
+		$ips = $this->filter_whitelist($ips);
 		if (count($ips) === 0) {
 			return 0;
 		}
 		//$this->logger->notice("DROPPING {ips}", array("ips" => $ips));
-		$this->clean();
-		$ips = $this->filter_whitelist($ips);
 		
 		if ($this->ipban_fs) {
 			$this->ipban_fs->drop_ip($ips);
 		}
-		$added = 0;
-		foreach (self::$chain_config as $chain => $settings) {
-			$suffix = $command_parameter = null;
-			extract($settings, EXTR_IF_EXISTS);
-			$name = $prefix . $suffix;
-			foreach ($ips as $ip) {
-				if ($this->chain_has_ip($name, $ip)) {
-					continue;
-				}
-				$this->logger->notice("Blocking {ip} in {name}", array(
-					"ip" => $ip,
-					"name" => $chain
-				));
-				$this->iptables("-A {0} $command_parameter {1} -j DROP", $name, $ip);
-				$added = $added + 1;
-			}
-		}
-		
-		$this->chains_dirty = true;
-		return $added;
+		return $this->firewall ? $this->firewall->drop_ip($prefix, $ips) : 0;
 	}
 	
 	/**
@@ -775,29 +596,10 @@ class Application extends \zesk\Application {
 		if (count($ips) === 0) {
 			return 0;
 		}
-		$this->clean();
 		if ($this->ipban_fs) {
 			$this->ipban_fs->allow_ip($ips);
 		}
-		
-		$found = $this->find_ips($ips);
-		if (count($found) === 0) {
-			$this->logger->debug("No entries found for ips: {ips}", array(
-				"ips" => implode(", ", $ips)
-			));
-			return 0;
-		}
-		$indexes = array();
-		foreach ($found as $k => $rule) {
-			$indexes[$k] = $rule['index'];
-		}
-		array_multisort($indexes, SORT_DESC | SORT_NUMERIC, $found);
-		foreach ($found as $rule) {
-			$this->logger->notice("Removing index {index} from {name} {source}->{destination}", $rule);
-			$this->iptables('-D {0} {1}', $rule['name'], $rule['index']);
-			$this->chains_dirty = true;
-		}
-		return count($found);
+		return $this->firewall ? $this->firewall->allow_ip($prefix, $ips) : 0;
 	}
 	
 	/**
@@ -811,7 +613,7 @@ class Application extends \zesk\Application {
 		$url = $this->option('url_toxic_ip');
 		if (!URL::valid($url)) {
 			if (!$errored) {
-				$this->logger->error("Application_IPBan::url_toxic_ip not set to valid URL: {url}", array(
+				$this->logger->error("Application_Complaint::url_toxic_ip not set to valid URL: {url}", array(
 					"url" => $url
 				));
 				$errored = true;
@@ -825,9 +627,6 @@ class Application extends \zesk\Application {
 				return "no-file";
 			}
 			$ips = $this->load_ip_file($path, "toxic");
-			$ips = $this->filter_whitelist($ips);
-			// 			$this->clean();
-			// 			$chain_ips = $this->chain_ips(self::chain_toxic);
 			$this->sync_ip_list(self::chain_toxic, $ips);
 			return "synced";
 		}
@@ -841,232 +640,13 @@ class Application extends \zesk\Application {
 	 * @param array $ips        	
 	 */
 	protected function sync_ip_list($prefix, array $ips) {
-		$this->clean();
-		$this->remove_duplicates($prefix);
-		$this->clean();
-		
+		$ips = $this->filter_whitelist($ips);
 		if ($this->ipban_fs) {
 			$this->ipban_fs->drop($ips);
 		}
-		$chain_ips = $this->chain_ips($prefix);
-		
-		$drop_ips = array();
-		$allow_ips = array();
-		
-		if ($this->debug) {
-			$this->logger->debug("IP list: {ips}", array(
-				"ips" => _dump($ips)
-			));
-			$this->logger->debug("CHAIN IPs: {ips}", array(
-				"ips" => _dump($chain_ips)
-			));
+		if ($this->firewall) {
+			$this->firewall->set_ips($prefix, $ips);
 		}
-		foreach ($ips as $ip) {
-			if (!array_key_exists($ip, $chain_ips)) {
-				$drop_ips[] = $ip;
-			}
-			if (array_key_exists($ip, $chain_ips)) {
-				unset($chain_ips[$ip]);
-			}
-		}
-		if ($this->debug) {
-			$this->logger->debug("ALLOW IPs: {ips}", array(
-				"ips" => _dump($chain_ips)
-			));
-			$this->logger->debug("DROP IPs: {ips}", array(
-				"ips" => _dump($drop_ips)
-			));
-		}
-		$this->allow_ip($prefix, $chain_ips);
-		$this->drop_ip($prefix, $drop_ips);
-	}
-	
-	/**
-	 * Remove duplicate IPs from list - this happens during development, so might as well keep it
-	 * robust
-	 *
-	 * @param string $prefix        	
-	 */
-	protected function remove_duplicates($prefix) {
-		foreach (self::$chain_config as $settings) {
-			$suffix = $ip_column = null;
-			extract($settings, EXTR_IF_EXISTS);
-			$name = $prefix . $suffix;
-			
-			$rules = apath($this->chains, array(
-				$name,
-				"rules"
-			));
-			if (!is_array($rules)) {
-				$this->logger->debug("remove_duplicates: No rules for {name}", compact("name"));
-				continue;
-			}
-			$remove_indexes = array();
-			$found_ips = array();
-			foreach ($rules as $rule) {
-				$ip = $rule[$ip_column];
-				if (array_key_exists($ip, $found_ips)) {
-					$remove_indexes[$rule['index']] = $ip;
-				} else {
-					$found_ips[$ip] = $ip;
-				}
-			}
-			if (count($remove_indexes) > 0) {
-				krsort($remove_indexes, SORT_NUMERIC | SORT_DESC);
-				foreach ($remove_indexes as $index => $ip) {
-					$this->logger->debug("Removing duplicate IP {ip} at index {index}", compact("ip", "index"));
-					$this->iptables("-D {0} {1}", $name, $index);
-				}
-				$this->chains_dirty = true;
-			}
-		}
-	}
-	
-	/**
-	 * Clean the chains database from the iptables command
-	 */
-	protected function clean() {
-		if ($this->chains_dirty) {
-			$this->logger->debug("Cleaning");
-			$this->chains = $this->list_chains();
-			$this->ips = $this->ip_index($this->chains);
-			$this->chains_dirty = false;
-		}
-	}
-	
-	/**
-	 * Is this an empty IP address (or all)
-	 *
-	 * @param string $ip        	
-	 * @return boolean
-	 */
-	private static function null_ip($ip) {
-		return begins($ip, '0.0.0.0') || empty($ip);
-	}
-	
-	/**
-	 * Compute index by IP address, ignoring null IPs
-	 *
-	 * @param array $chains        	
-	 * @return array
-	 */
-	private function ip_index(array $chains) {
-		$ips = array();
-		foreach ($chains as $name => $group) {
-			$rules = $group['rules'];
-			foreach ($rules as $index => $rule) {
-				foreach (to_list("source;destination") as $k) {
-					$ip = avalue($rule, $k);
-					if (!self::null_ip($ip)) {
-						$ips[$ip]["$name.rules.$index.$k"] = $rule;
-					}
-				}
-			}
-		}
-		return $ips;
-	}
-	
-	/**
-	 * Get chains and parse them from the command iptables --list -n -v
-	 *
-	 * @return array
-	 */
-	protected function list_chains() {
-		$result = $this->iptables("--list -n -v");
-		return self::parse_list_chains($result);
-	}
-	
-	/**
-	 * Parse parenthesized chain line:
-	 *
-	 * <code>
-	 * (policy ACCEPT)
-	 * (policy ACCEPT 4555K packets, 1390M bytes)
-	 * (1 references)
-	 * </code>
-	 *
-	 * etc.
-	 *
-	 * @param string $string        	
-	 * @return array
-	 */
-	protected function parse_chain_parens($string) {
-		$matches = null;
-		if (preg_match('/([0-9]+) references/', $string, $matches)) {
-			return array(
-				'references' => intval($matches[1]),
-				'user' => true
-			);
-		}
-		if (preg_match('/policy ([A-Za-z]+)(.*)/', $string, $matches)) {
-			return array(
-				'policy' => $matches[1],
-				'user' => false,
-				'stats' => trim($matches[2])
-			);
-		}
-		$this->logger->warning("Unable to parse chain parens: {string}", array(
-			"string" => $string
-		));
-		return array();
-	}
-	
-	/**
-	 * Parse --list -n output from iptables
-	 *
-	 * @param array $result        	
-	 * @return array
-	 */
-	protected function parse_list_chains(array $result) {
-		$chains = array();
-		while (count($result) > 0) {
-			$line = array_shift($result);
-			if (preg_match('/Chain ([-A-Za-z0-9_]+) \(([^)]*)\)/', $line, $matches)) {
-				$name = $matches[1];
-				$chain_data = $this->parse_chain_parens($matches[2]);
-				$line = array_shift($result);
-				$headers = explode(" ", preg_replace('/\s+/', ' ', trim($line)));
-				$rules = array();
-				$rule_index = 1;
-				while (count($result) > 0) {
-					$line = trim(array_shift($result));
-					if (empty($line)) {
-						break;
-					}
-					$rule = array();
-					$columns = explode(" ", preg_replace('/\s+/', ' ', $line));
-					foreach ($columns as $index => $column) {
-						$rule[$headers[$index]] = $column;
-					}
-					$rules[$rule_index] = $rule + array(
-						'index' => $rule_index,
-						'name' => $name
-					);
-					$rule_index++;
-				}
-				$chains[$name] = array(
-					'rules' => $rules,
-					'name' => $name
-				) + $chain_data;
-			} else {
-				$this->logger->notice("Skipping line {line} - no chain match", array(
-					"line" => $line
-				));
-			}
-		}
-		return $chains;
-	}
-	
-	/**
-	 * Run iptables command and return output
-	 *
-	 * @param string $parameters        	
-	 * @return array
-	 */
-	protected function iptables($parameters) {
-		$args = func_get_args();
-		array_shift($args);
-		return $this->process->execute_arguments($this->iptables . " " . $parameters, $args);
 	}
 }
 

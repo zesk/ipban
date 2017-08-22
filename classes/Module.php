@@ -38,12 +38,12 @@ class Module extends \zesk\Module {
 	 * @var array
 	 */
 	protected $classes = array(
-		"IPBan\\IPBan",
-		"IPBan\\IPBan_IP",
-		"IPBan\\IPBan_Parser",
-		"IPBan\\IPBan_Event",
-		"IPBan\\IPBan_Tag",
-		"IPBan\\IPBan_Tag_Type"
+		"IPBan\\Complaint",
+		"IPBan\\IP",
+		"IPBan\\Parser",
+		"IPBan\\Event",
+		"IPBan\\Tag",
+		"IPBan\\Tag_Type"
 	);
 	
 	/**

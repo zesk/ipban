@@ -14,7 +14,13 @@ require_once __DIR__ . "/vendor/autoload.php";
 $zesk = zesk\Kernel::singleton();
 $zesk->application_class = 'IPBan\\Application';
 $zesk->paths->set_application(__DIR__);
-$zesk->autoloader->path(__DIR__ . "/classes", array("lower" => false, "class_prefix" => "ipban\\"));
+$zesk->autoloader->path(__DIR__ . "/classes", array(
+	"lower" => false,
+	"class_prefix" => "IPBan\\"
+));
 
-return app()->configure();
+$app = $zesk->create_application();
+$app->zesk_command_path($app->application_root("command"), "IPBan\\Command_");
+
+return $app->configure();
 

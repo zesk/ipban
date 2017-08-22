@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Ban IP addresses from the command line. Make sure your own IP is listed in the whitelist!
  * Works with Module_IPBan which must be running as a root daemon.
@@ -9,6 +10,8 @@
  * @subpackage ipban
  * @copyright (c) 2013 Market Acumen, Inc.
  */
+namespace IPBan;
+
 use zesk\Text;
 use zesk\Command_Base;
 use zesk\IPv4;
@@ -72,11 +75,11 @@ class Command_IPBan extends Command_Base {
 						));
 					}
 				} else {
-					IPBan::complain($ip, $this->option_integer("severity", IPBan::severity_known), $this->option("message", __CLASS__));
+					Complaint::complain($ip, $this->option_integer("severity", Complaint::severity_known), $this->option("message", __CLASS__));
 					$complained = true;
 				}
 				if ($complained) {
-					Application_IPBan::fifo()->write("Hello");
+					Application_Complaint::fifo()->write("Hello");
 				}
 			} while ($this->has_arg());
 		} else {

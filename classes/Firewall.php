@@ -1,18 +1,21 @@
 <?php
 
+/**
+ * 
+ */
 namespace IPBan;
 
 use zesk\Application;
 use zesk\Model;
 
-abstract class Firewall extends \zesk\Model {
+abstract class Firewall extends Model {
 	/**
 	 *
 	 * @param Application $application        	
 	 * @param string $name        	
 	 * @return self
 	 */
-	static final function factory(Application $application, $name) {
+	static final function firewall_factory(Application $application, $name) {
 		return $application->objects->factory(__CLASS__ . "_" . $name, $application);
 	}
 	/**
@@ -21,14 +24,14 @@ abstract class Firewall extends \zesk\Model {
 	 * @param string $name        	
 	 * @param string $ip        	
 	 */
-	abstract function drop_ip($name, $ip);
+	abstract function drop_ip($name, array $ips);
 	/**
 	 * Allow an IP address in named list
 	 *
 	 * @param string $name        	
 	 * @param string $ip        	
 	 */
-	abstract function allow_ip($name, $ip);
+	abstract function allow_ip($name, array $ip);
 	
 	/**
 	 * Set an entire IP list at once

@@ -106,6 +106,9 @@ class Firewall_iptables extends Firewall {
 			));
 		}
 		$this->iptables = zesk()->paths->which("iptables");
+		if (!$this->iptables) {
+			throw new \zesk\Exception_Unsupported("iptables is not installed in underlying system");
+		}
 		$this->clean();
 		$this->logger->notice("Existing chains: " . implode(", ", array_keys($this->chains)));
 		foreach (array(
@@ -132,7 +135,7 @@ class Firewall_iptables extends Firewall {
 	 * @param string $name        	
 	 * @return array
 	 */
-	protected function ip_list($prefix) {
+	public function ip_list($prefix) {
 		$ips = array();
 		foreach (self::$chain_config as $settings) {
 			$suffix = $ip_column = null;
@@ -158,7 +161,7 @@ class Firewall_iptables extends Firewall {
 	 * @param string $name        	
 	 * @return boolean
 	 */
-	protected function has_ip_list($name) {
+	public function has_ip_list($name) {
 		return array_key_exists($name, $this->chains);
 	}
 	
@@ -306,7 +309,7 @@ class Firewall_iptables extends Firewall {
 	 * @param unknown $prefix        	
 	 * @param array $ips        	
 	 */
-	protected function set_ips($prefix, array $ips) {
+	public function set_ips($prefix, array $ips) {
 		$this->clean();
 		$this->remove_duplicates($prefix);
 		$this->clean();
@@ -345,7 +348,8 @@ class Firewall_iptables extends Firewall {
 	}
 	
 	/**
-	 * Remove duplicate IPs from list - this happens during development, so might as well keep it
+	 * Remove duplicate IPs from list - this happens during development, so might as well keep
+	 * it
 	 * robust
 	 *
 	 * @param string $prefix        	

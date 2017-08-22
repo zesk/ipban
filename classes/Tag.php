@@ -5,8 +5,6 @@
  */
 namespace IPBan;
 
-use zesk\Object;
-
 /**
  *
  * @see Class_Tag

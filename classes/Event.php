@@ -1,15 +1,18 @@
 <?php
-use zesk\Object;
+
+namespace IPBan;
+
 use zesk\Timestamp;
 use zesk\Database_Exception_Duplicate;
 use zesk\Exception_Object_Duplicate;
 
 /**
+ *
  * @see Class_IPBan_Event
  * @author kent
- *
+ *        
  */
-class IPBan_Event extends IPBan {
+class Event extends Object {
 	
 	/**
 	 * Array of [tag][ip] => count
@@ -22,7 +25,7 @@ class IPBan_Event extends IPBan {
 	public static function log($ip, $utc, $type, $name) {
 		try {
 			return Object::factory(__CLASS__, array(
-				'tag' => IPBan_Tag::instance($type, $name),
+				'tag' => Tag::instance($type, $name),
 				"utc" => $utc,
 				"ip" => $ip
 			))->store();
